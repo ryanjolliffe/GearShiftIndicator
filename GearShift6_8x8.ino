@@ -122,7 +122,14 @@ const byte    BRIGHTNESS                       = 4;
 const uint8_t DEBOUNCE_DELAY                   = 5;
 
 // DEBUGGING
-/** Set to 1 to enable debugging via Serial (baud) */
+/** Set to 1 to enable debugging via Serial, 0 to disable.
+*
+*  Intended workflow: reflash with DEBUG_MODE=1 before a debugging session,
+*  then reflash with DEBUG_MODE=0 when finished. When enabled, the sketch
+*  runs debugFunction() once in setup() then halts in an infinite loop —
+*  it will not enter the normal gear-reading loop. Reboot the Arduino to
+*  restart (e.g. power-cycle the car). This is by design so that debug
+*  output is captured cleanly without interleaving live readings. */
 const byte    DEBUG_MODE                       = 0;
 /** Number of readings in debug mode, recommended to match buffer size or larger */
 const uint8_t DEBUG_READS                      = BUFFER_SIZE;
@@ -367,10 +374,14 @@ void displayGear(int8_t gearValue) {
   }
 }
 
-/* WIP */
-
-/** @brief Checks for given sequence of gear changes using
-* buffer functionality and calls other functions as required. */
+/** @brief Checks for given sequence of gear changes using buffer
+* functionality and calls other functions as required.
+*
+* Called every loop iteration. When the gear history buffer is full and
+* matches a configured sequence, the corresponding animation plays.
+* Re-triggering on subsequent calls with the same buffer contents is
+* intentional: animations continue looping until the driver selects a
+* different gear, at which point the buffer changes and the match breaks. */
 void checkHistory() {
   if (previousGears.isFull()) {
     char gearHistory[BUFFER_SIZE];                                              // create new char array from history for comparison
