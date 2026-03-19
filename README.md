@@ -116,7 +116,7 @@ All user-facing settings live at the top of `GearShift6_8x8.ino` with Doxygen co
 
 | Constant | Default | Description |
 |----------|---------|-------------|
-| `DEBUG_MODE` | `0` | Set to `1` to enable Serial output |
+| `DEBUG_MODE` | `0` | Set to `1` to enable debug mode, `0` to disable |
 | `BAUD_SPEED` | `9600` | Serial baud rate |
 | `DEBUG_READS` | `4` | Number of sensor readings to log |
 | `DEBUG_DELAY` | `3000` | Milliseconds between debug readings (time to change gear) |
@@ -133,10 +133,10 @@ All user-facing settings live at the top of `GearShift6_8x8.ino` with Doxygen co
 | `displaySetup()` | Initialises Parola, sets brightness, scrolls startup text |
 | `getGear()` | Reads sensors with debounce; returns gear index `[0, NUM_LOOPS]` |
 | `displayGear(gearValue)` | Renders gear character; scrolls up/down based on direction of change |
-| `checkHistory()` | Compares gear buffer against configured sequences; fires animations |
+| `checkHistory()` | Compares gear buffer against configured sequences; fires animations continuously until a different gear is selected |
 | `checkArrays(a, b, n)` | Returns `true` if the first `n` elements of two char arrays match |
 | `displayAnimation(selection)` | Plays a PROGMEM sprite animation on the LED matrix |
-| `debugFunction()` | Logs sensor readings and buffer contents to Serial, then halts |
+| `debugFunction()` | Logs sensor readings and buffer contents to Serial, then halts in an infinite loop |
 
 ---
 
@@ -203,6 +203,23 @@ The test runner includes the `.ino` file directly — no modifications to the sk
 | [CircularBuffer](https://github.com/rlogiacco/CircularBuffer) | Gear-history ring buffer |
 
 Install via the Arduino Library Manager or place in your `libraries/` folder.
+
+---
+
+## Debugging 🔧
+
+Set `DEBUG_MODE = 1` in the sketch and reflash. On boot, `debugFunction()` runs once: it takes `DEBUG_READS` sensor snapshots (with `DEBUG_DELAY` ms between each to give time to move through gears), prints the results over Serial, then **halts in an infinite loop**. This is intentional — it keeps debug output clean and prevents live readings from interleaving with the log.
+
+**Workflow:**
+1. Reflash with `DEBUG_MODE = 1`
+2. Power on the car (or connect USB)
+3. Open Serial Monitor at `BAUD_SPEED` (default 9600)
+4. Step through gears during the `DEBUG_DELAY` pauses
+5. Review the sensor and buffer output
+6. Reboot the Arduino to run another capture (power-cycle suffices)
+7. Reflash with `DEBUG_MODE = 0` when finished
+
+The infinite halt means the car's gear indicator will not function while debug mode is active — intended to make it obvious the sketch needs reflashing before use.
 
 ---
 
