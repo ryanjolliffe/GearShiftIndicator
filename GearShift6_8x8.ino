@@ -80,6 +80,7 @@
 /** Change if using PAROLA_HW or other LED hardware,
 * incorrect setting can cause orientation issues */
 #define HARDWARE_TYPE MD_MAX72XX::GENERIC_HW
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 
 /* Settings: */
 
@@ -345,7 +346,9 @@ void checkHistory() {
       gearHistory[i] = GearChars[previousGears[i]];
     }
     if (checkArrays(gearHistory, ANIM_SEQUENCE, BUFFER_SIZE) == true) {         // compares the two arrays; if buffer history matches ANIM_SEQUENCE, then display animation
-      displayAnimation(random(ARRAY_SIZE(sprite) - 1));                         // selects and displays random animation from struct array
+      displayAnimation(random(ARRAY_SIZE(sprite)));                              // selects and displays random animation from struct array
+      previousGears.clear();                                                    // clear buffer so sequence must be re-entered before triggering again
+      previousGears.push(currentGear);
     }
     else if (checkArrays(gearHistory, SCROLLTEXT_SEQUENCE, BUFFER_SIZE) == true) {
       Parola.displayClear();
@@ -354,6 +357,8 @@ void checkHistory() {
         ;
       Parola.displayReset();
       Parola.displayClear();
+      previousGears.clear();                                                    // clear buffer so sequence must be re-entered before triggering again
+      previousGears.push(currentGear);
     }
   }
 }
