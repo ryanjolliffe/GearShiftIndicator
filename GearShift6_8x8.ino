@@ -114,15 +114,64 @@ const char    ANIM_SEQUENCE[BUFFER_SIZE]       = {'D', 'N', 'D', 'N'};
 const char    SCROLLTEXT_SEQUENCE[BUFFER_SIZE] = {'R', 'N', 'R', 'N'};
 /** Speed that StartupText and animations are scrolled, number is milliseconds between frame updates */
 const uint16_t SCROLL_SPEED                    = 75;
-/** Set brightness of LEDs (using range 0-15), can replace with potentiometer-derived value */
+/** Set brightness of LEDs (using range 0-15) */
 const byte    BRIGHTNESS                       = 4;
 /** Debounce delay (ms) between the two sensor reads in getGear() - filters
 *  electrical noise and transient readings during gear transitions.
 *  5ms is imperceptible to the driver given display animations take 500ms+. */
 const uint8_t DEBOUNCE_DELAY                   = 5;
 
+// POTENTIOMETER BRIGHTNESS (optional)
+/** Set to true to control LED brightness via a potentiometer on BRIGHTNESS_POT_PIN.
+*  When false, BRIGHTNESS above is used and the analog pin is never read — the
+*  compiler eliminates the dead branch entirely so there is no runtime cost. */
+const bool    USE_POT_BRIGHTNESS               = false;
+/** Analog pin for the brightness potentiometer (A1 by default; A0 is used for RNG seed) */
+const uint8_t BRIGHTNESS_POT_PIN               = A1;
+
+// POTENTIOMETER SCROLL SPEED (optional)
+/** Set to true to control animation scroll speed via a potentiometer on SCROLL_POT_PIN.
+*  When false, SCROLL_SPEED is used and the analog pin is never read; zero runtime cost. */
+const bool    USE_POT_SCROLL                   = false;
+/** Analog pin for the scroll speed potentiometer */
+const uint8_t SCROLL_POT_PIN                   = A2;
+/** Minimum scroll speed in ms per frame when using potentiometer (lower = faster) */
+const uint16_t SCROLL_SPEED_MIN                = 30;
+/** Maximum scroll speed in ms per frame when using potentiometer (higher = slower) */
+const uint16_t SCROLL_SPEED_MAX                = 250;
+
+// NEUTRAL REMINDER (optional)
+/** Set to true to activate a brightness-based visual reminder after the vehicle has
+*  been in Neutral for longer than NEUTRAL_REMINDER_DELAY. The display brightens to
+*  NEUTRAL_REMINDER_BRIGHTNESS and returns to normal as soon as another gear is selected.
+*  When false, no timer or pin reads occur; zero runtime cost. */
+const bool     NEUTRAL_REMINDER                = false;
+/** Index of the Neutral gear in GearChars[]; update if the gear layout is changed */
+const int8_t   NEUTRAL_INDEX                   = 2;
+/** Time in milliseconds before the neutral reminder activates (default: 5 seconds) */
+const uint32_t NEUTRAL_REMINDER_DELAY          = 5000;
+/** LED brightness applied when the neutral reminder is active (0-15; default: max) */
+const uint8_t  NEUTRAL_REMINDER_BRIGHTNESS     = 15;
+
+// DEBUG SWITCH (optional)
+/** Set to true to allow a physical normally-open switch wired between DEBUG_SWITCH_PIN
+*  and GND to enable debug mode without reflashing. If the pin reads LOW at boot
+*  (INPUT_PULLUP), debugFunction() runs exactly as if DEBUG_MODE=1. When false, this
+*  pin is never initialised and DEBUG_MODE governs debug behaviour; zero runtime cost. */
+const bool    USE_DEBUG_SWITCH                 = false;
+/** Digital pin for the optional debug enable switch; pulled LOW to activate.
+*  Pin 9 is chosen as it is free on the Uno given the default sensor and SPI pin usage. */
+const uint8_t DEBUG_SWITCH_PIN                 = 9;
+
 // DEBUGGING
-/** Set to 1 to enable debugging via Serial (baud) */
+/** Set to 1 to enable debugging via Serial, 0 to disable.
+*
+*  Intended workflow: reflash with DEBUG_MODE=1 before a debugging session,
+*  then reflash with DEBUG_MODE=0 when finished. When enabled, the sketch
+*  runs debugFunction() once in setup() then halts in an infinite loop —
+*  it will not enter the normal gear-reading loop. Reboot the Arduino to
+*  restart (e.g. power-cycle the car). This is by design so that debug
+*  output is captured cleanly without interleaving live readings. */
 const byte    DEBUG_MODE                       = 0;
 /** Number of readings in debug mode, recommended to match buffer size or larger */
 const uint8_t DEBUG_READS                      = BUFFER_SIZE;
@@ -145,6 +194,9 @@ void     checkHistory();
 boolean  checkArrays(char arrayA[], const char arrayB[], long numItems);
 void     displayAnimation(byte selection);
 void     debugFunction();
+uint8_t  getBrightness();
+uint16_t getScrollSpeed();
+bool     neutralReminderActive();
 // SOFTWARE SPI
 //MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
     
@@ -255,6 +307,44 @@ int8_t currentGear;
 /** A Circular Buffer (array of length BUFFER_SIZE)
 * used to store the previous gear positions. */
 CircularBuffer<byte, BUFFER_SIZE> previousGears;                                // a buffer to store previous gear positions
+/** Timestamp (ms) recorded when the vehicle entered Neutral; 0 = not in Neutral.
+*  Only written when NEUTRAL_REMINDER is true. */
+unsigned long neutralSinceMs = 0;
+
+/** @brief Returns the target LED brightness.
+*
+*  When USE_POT_BRIGHTNESS is true, reads BRIGHTNESS_POT_PIN and maps the
+*  result (0–1023) to the valid intensity range (0–15). When false, returns
+*  the BRIGHTNESS constant — the dead branch is eliminated by the compiler. */
+uint8_t getBrightness() {
+  if (USE_POT_BRIGHTNESS)
+    return (uint8_t)map(analogRead(BRIGHTNESS_POT_PIN), 0, 1023, 0, 15);
+  return BRIGHTNESS;
+}
+
+/** @brief Returns the target scroll/animation speed in ms per frame.
+*
+*  When USE_POT_SCROLL is true, reads SCROLL_POT_PIN and maps the result
+*  to [SCROLL_SPEED_MIN, SCROLL_SPEED_MAX]. When false, returns SCROLL_SPEED
+*  with no analog read; zero runtime cost. */
+uint16_t getScrollSpeed() {
+  if (USE_POT_SCROLL)
+    return (uint16_t)map(analogRead(SCROLL_POT_PIN), 0, 1023, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX);
+  return SCROLL_SPEED;
+}
+
+/** @brief Returns true when the neutral reminder should be active.
+*
+*  Active when NEUTRAL_REMINDER is enabled, the current gear is Neutral,
+*  the neutral timer has been started (neutralSinceMs != 0), and the vehicle
+*  has remained in Neutral for at least NEUTRAL_REMINDER_DELAY milliseconds.
+*  Extracted as a helper to keep loop() readable and to allow unit testing. */
+bool neutralReminderActive() {
+  return NEUTRAL_REMINDER
+    && (currentGear == NEUTRAL_INDEX)
+    && (neutralSinceMs != 0)
+    && (millis() - neutralSinceMs >= NEUTRAL_REMINDER_DELAY);
+}
 
 /**
  * @brief Initialises sensors and LED display.
@@ -272,7 +362,14 @@ void setup() {
   displaySetup();                                                               // initialise display
   currentGear = 0;                                                              // set current gear to 'Parked' position until first sensor read to establish known state
   previousGears.push(currentGear);                                              // push 'Park' {"P"} position to buffer also, which is translated to *char via GearChars[0]
-  if (DEBUG_MODE == 1) {                                                        // check if DEBUG_MODE is enabled, and runs debugFunction() if TRUE
+  bool runDebug = false;
+  if (USE_DEBUG_SWITCH) {                                                       // if physical debug switch enabled, read the pin at boot to decide
+    pinMode(DEBUG_SWITCH_PIN, INPUT_PULLUP);
+    runDebug = (digitalRead(DEBUG_SWITCH_PIN) == LOW);                         // switch closed (pulled to GND) → enable debug
+  } else {
+    runDebug = (DEBUG_MODE == 1);                                               // fall back to the reflash-based DEBUG_MODE flag
+  }
+  if (runDebug) {
     Serial.begin(BAUD_SPEED);
     debugFunction();
   }
@@ -288,6 +385,28 @@ void setup() {
  */
 void loop() {
   currentGear = getGear();                                                      // read hall effect sensors and calculate current gear position
+
+  // Track how long the vehicle has been in Neutral (only when NEUTRAL_REMINDER enabled)
+  if (NEUTRAL_REMINDER) {
+    if (currentGear == NEUTRAL_INDEX) {
+      if (neutralSinceMs == 0) neutralSinceMs = millis() | 1UL;               // record entry time; '| 1' ensures we never store 0 (0 is the "not in neutral" sentinel)
+    } else {
+      neutralSinceMs = 0;                                                       // left Neutral — reset timer
+    }
+  }
+
+  // Update display brightness when pot control or neutral reminder is in use.
+  // A static sentinel (255 = uninitialised) means setIntensity() is only called
+  // when the value changes, avoiding unnecessary SPI writes each loop iteration.
+  if (USE_POT_BRIGHTNESS || NEUTRAL_REMINDER) {
+    static uint8_t lastIntensity = 255;
+    uint8_t intensity = neutralReminderActive() ? NEUTRAL_REMINDER_BRIGHTNESS : getBrightness();
+    if (intensity != lastIntensity) {
+      Parola.setIntensity(intensity);
+      lastIntensity = intensity;
+    }
+  }
+
   displayGear(currentGear);                                                     // display the current gear, with appropriate animation if different from previous gear
   checkHistory();                                                               // checks gear history for defined sequences and calls relevant functions
 }
@@ -310,7 +429,7 @@ void displaySetup() {
   Parola.begin();                                                               // initialise display
   Parola.setIntensity(BRIGHTNESS);                                              // set display intensity/brightness
   Parola.displayClear();
-  Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED);     // display message on startup
+  Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, getScrollSpeed()); // display message on startup
   while (!Parola.displayAnimate())                                              // play animation once until complete
     ;
   Parola.displayReset();
@@ -352,14 +471,14 @@ void displayGear(int8_t gearValue) {
   }
   else if ((previousGears.last() < gearValue)) {                                // if the previous gear is situated to the left of current gear (in char array) then scroll down
     Parola.displayText(
-      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_DOWN, PA_NO_EFFECT     // set scrolling text settings
+      curGearChar, PA_CENTER, getScrollSpeed(), 1, PA_SCROLL_DOWN, PA_NO_EFFECT // set scrolling text settings
     );
     while (!Parola.displayAnimate())                                            // play once animation until complete
       ;
     previousGears.push(gearValue);                                              // push current gear to buffer as it is different
   } else {                                                                      // if the previous gear is not situated left (i.e. is to the right of current gear in char array) then scroll up
     Parola.displayText(
-      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_UP, PA_NO_EFFECT
+      curGearChar, PA_CENTER, getScrollSpeed(), 1, PA_SCROLL_UP, PA_NO_EFFECT
     );
     while (!Parola.displayAnimate())
       ;
@@ -367,10 +486,14 @@ void displayGear(int8_t gearValue) {
   }
 }
 
-/* WIP */
-
-/** @brief Checks for given sequence of gear changes using
-* buffer functionality and calls other functions as required. */
+/** @brief Checks for given sequence of gear changes using buffer
+* functionality and calls other functions as required.
+*
+* Called every loop iteration. When the gear history buffer is full and
+* matches a configured sequence, the corresponding animation plays.
+* Re-triggering on subsequent calls with the same buffer contents is
+* intentional: animations continue looping until the driver selects a
+* different gear, at which point the buffer changes and the match breaks. */
 void checkHistory() {
   if (previousGears.isFull()) {
     char gearHistory[BUFFER_SIZE];                                              // create new char array from history for comparison
@@ -382,7 +505,7 @@ void checkHistory() {
     }
     else if (checkArrays(gearHistory, SCROLLTEXT_SEQUENCE, BUFFER_SIZE) == true) {
       Parola.displayClear();
-      Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED); // scroll StartupText
+      Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, getScrollSpeed()); // scroll StartupText
       while (!Parola.displayAnimate())                                          // play animation once until complete
         ;
       Parola.displayReset();
@@ -413,7 +536,7 @@ void displayAnimation(byte selection) {
     sprite[selection].data, sprite[selection].width, sprite[selection].frames   // exit sprite
   );
   Parola.displayText(
-    curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SPRITE, PA_SPRITE               // set animation settings
+    curGearChar, PA_CENTER, getScrollSpeed(), 1, PA_SPRITE, PA_SPRITE           // set animation settings
   );
   while (!Parola.displayAnimate())                                              // play animation once until complete
     ;
