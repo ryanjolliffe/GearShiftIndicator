@@ -288,7 +288,13 @@ void loop() {
   checkHistory();                                                               // checks gear history for defined sequences and calls relevant functions
 }
 
-/** @brief Initialize the hall effect sensor pins as inputs. */
+/** @brief Initialize the hall effect sensor pins as inputs.
+*
+* INPUT is used here assuming sensors have push-pull outputs or external
+* pull-up/pull-down resistors are present. If your sensors have open-drain
+* outputs and no external pull-ups, consider changing INPUT to INPUT_PULLUP
+* to enable the Arduino's internal pull-up resistors and prevent floating
+* inputs when no sensor is triggered. */
 void hallSetup() {
   for (int8_t i = 0; i < NUM_LOOPS; i++) {
     pinMode(Hall[i], INPUT);
