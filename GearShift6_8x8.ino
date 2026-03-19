@@ -347,8 +347,6 @@ void checkHistory() {
     }
     if (checkArrays(gearHistory, ANIM_SEQUENCE, BUFFER_SIZE) == true) {         // compares the two arrays; if buffer history matches ANIM_SEQUENCE, then display animation
       displayAnimation(random(ARRAY_SIZE(sprite)));                              // selects and displays random animation from struct array
-      previousGears.clear();                                                    // clear buffer so sequence must be re-entered before triggering again
-      previousGears.push(currentGear);
     }
     else if (checkArrays(gearHistory, SCROLLTEXT_SEQUENCE, BUFFER_SIZE) == true) {
       Parola.displayClear();
@@ -357,8 +355,6 @@ void checkHistory() {
         ;
       Parola.displayReset();
       Parola.displayClear();
-      previousGears.clear();                                                    // clear buffer so sequence must be re-entered before triggering again
-      previousGears.push(currentGear);
     }
   }
 }
