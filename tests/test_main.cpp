@@ -241,11 +241,8 @@ static void test_config() {
     TEST("NUM_LOOPS < NUM_GEARS (no out-of-bounds on GearChars)",
          NUM_LOOPS < NUM_GEARS);
 
-    // LED array must have 4 entries: DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES
-    TEST("LED[] has 4 entries", sizeof(LED) / sizeof(LED[0]) == 4);
-
-    // MAX_DEVICES (LED[3]) must be >= 1
-    TEST("LED[3] (MAX_DEVICES) >= 1", LED[3] >= 1);
+    // MAX_DEVICES must be >= 1
+    TEST("MAX_DEVICES >= 1", MAX_DEVICES >= 1);
 
     // ANIM_SEQUENCE and SCROLLTEXT_SEQUENCE must differ (else scrolltext unreachable)
     bool sequences_differ = false;
@@ -272,11 +269,10 @@ static void test_config() {
     TEST("All chars in ANIM_SEQUENCE exist in GearChars",       anim_valid);
     TEST("All chars in SCROLLTEXT_SEQUENCE exist in GearChars", scroll_valid);
 
-    // Hall pins must not overlap with SPI pins (11=MOSI, 13=SCK, 10=CS)
-    // LED[0]=11(DATA), LED[1]=13(CLK), LED[2]=10(CS) are the SPI pins
+    // Hall pins must not overlap with SPI pins (DATA_PIN, CLK_PIN, CS_PIN)
     bool no_pin_conflict = true;
     for (int8_t i = 0; i < NUM_LOOPS; i++) {
-        if (Hall[i] == LED[0] || Hall[i] == LED[1] || Hall[i] == LED[2])
+        if (Hall[i] == DATA_PIN || Hall[i] == CLK_PIN || Hall[i] == CS_PIN)
             no_pin_conflict = false;
     }
     TEST("Hall sensor pins do not conflict with SPI/LED pins", no_pin_conflict);
