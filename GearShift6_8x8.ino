@@ -116,6 +116,10 @@ const char    SCROLLTEXT_SEQUENCE[BUFFER_SIZE] = {'R', 'N', 'R', 'N'};
 const uint16_t SCROLL_SPEED                    = 75;
 /** Set brightness of LEDs (using range 0-15), can replace with potentiometer-derived value */
 const byte    BRIGHTNESS                       = 4;
+/** Debounce delay (ms) between the two sensor reads in getGear() - filters
+*  electrical noise and transient readings during gear transitions.
+*  5ms is imperceptible to the driver given display animations take 500ms+. */
+const uint8_t DEBOUNCE_DELAY                   = 5;
 
 // DEBUGGING
 /** Set to 1 to enable debugging via Serial (baud) */
@@ -325,7 +329,12 @@ int8_t getGear() {
   while ((gear) && (digitalRead(Hall[gear - 1]))) {
     gear--;
   }
-  return gear;
+  delay(DEBOUNCE_DELAY);                                                        // short pause then re-read to confirm; filters noise and transition glitches
+  int8_t gearConfirm = NUM_LOOPS;
+  while ((gearConfirm) && (digitalRead(Hall[gearConfirm - 1]))) {
+    gearConfirm--;
+  }
+  return (gear == gearConfirm) ? gear : previousGears.last();                  // only accept reading if both agree; otherwise hold last known gear
 }
 
 /**

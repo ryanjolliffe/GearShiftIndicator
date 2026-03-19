@@ -24,7 +24,9 @@
 #include "mocks/SPI.h"
 
 // mock_pin_state storage (declared extern in Arduino.h)
-int mock_pin_state[14] = {};
+int  mock_pin_state[14]            = {};
+int  mock_pin_state_post_delay[14] = {};
+bool mock_pin_change_on_delay      = false;
 
 // Include the actual sketch — gives us all its globals and functions
 #include "../GearShift6_8x8.ino"
@@ -56,8 +58,9 @@ static void reset_state() {
     previousGears.push(0);   // mirror setup(): start at Park
     currentGear = 0;
     parola_reset_counts();
-    // All sensors HIGH (not triggered)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
+    mock_pin_change_on_delay = false;
+    for (int i = 0; i < 14; i++) mock_pin_state[i]            = HIGH;
+    for (int i = 0; i < 14; i++) mock_pin_state_post_delay[i] = HIGH;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +396,45 @@ static void test_checkHistory() {
 }
 
 // ---------------------------------------------------------------------------
+// 7. getGear debounce
+// ---------------------------------------------------------------------------
+static void test_debounce() {
+    GROUP("getGear debounce");
+
+    // Stable read: both reads agree → accepted
+    reset_state();
+    mock_pin_state[Hall[2]] = LOW;              // D on first read
+    // post-delay state is same (stable)
+    mock_pin_state_post_delay[Hall[2]] = LOW;
+    mock_pin_change_on_delay = true;
+    TEST("stable read (both agree) → gear accepted", getGear() == 3);
+
+    // Transient glitch: first read sees a triggered sensor, second read does not
+    // → should hold last known gear (Park = 0)
+    reset_state();
+    mock_pin_state[Hall[3]] = LOW;              // '3' triggered on first read
+    // post-delay: all HIGH again (glitch cleared)
+    mock_pin_change_on_delay = true;
+    TEST("transient glitch (reads disagree) → last known gear returned",
+         getGear() == previousGears.last());
+
+    // Transient in reverse: first read clean, second read picks up noise
+    reset_state();
+    // first read: all HIGH (Park)
+    mock_pin_state_post_delay[Hall[1]] = LOW;   // N appears after delay (noise)
+    mock_pin_change_on_delay = true;
+    TEST("noise after delay (reads disagree) → last known gear returned",
+         getGear() == previousGears.last());
+
+    // Both reads agree on Park (all HIGH) → returns 0
+    reset_state();
+    mock_pin_change_on_delay = false;
+    TEST("both reads HIGH → gear 0 (Park)", getGear() == 0);
+
+    reset_state();
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main() {
@@ -404,6 +446,7 @@ int main() {
     test_config();
     test_displayGear_buffer();
     test_checkHistory();
+    test_debounce();
 
     printf("\n=================================\n");
     printf("Results: %d/%d passed", g_tests_passed, g_tests_run);

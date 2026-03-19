@@ -17,12 +17,18 @@ typedef bool     boolean;
 #define PROGMEM
 
 // Mock digitalRead state - indexed by pin number
-extern int mock_pin_state[14];
+extern int  mock_pin_state[14];
+// Optional second state applied after delay() — used to simulate noisy/transient reads
+extern int  mock_pin_state_post_delay[14];
+extern bool mock_pin_change_on_delay;
 
 inline int  digitalRead(int pin) { return mock_pin_state[pin]; }
 inline void pinMode(int, int) {}
 inline int  analogRead(int) { return 0; }
-inline void delay(unsigned long) {}
+inline void delay(unsigned long) {
+    if (mock_pin_change_on_delay)
+        for (int i = 0; i < 14; i++) mock_pin_state[i] = mock_pin_state_post_delay[i];
+}
 inline long random(long maxval) { return rand() % maxval; }
 inline void randomSeed(unsigned long seed) { srand((unsigned int)seed); }
 
