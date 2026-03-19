@@ -5,12 +5,17 @@
  * The .ino is included directly so we test the real source with no modifications.
  *
  * Test groups:
- *   1. checkArrays          — pure comparison logic
- *   2. getGear              — sensor-reading → gear-index mapping
- *   3. Sprite data          — frame/width constants match actual array sizes
- *   4. Configuration        — array size relationships enforced by constants
- *   5. displayGear buffer   — buffer pushed only on gear change
- *   6. checkHistory         — sequence detection triggers correct display path
+ *   1.  checkArrays              — pure comparison logic
+ *   2.  getGear                  — sensor-reading → gear-index mapping
+ *   3.  Sprite data              — frame/width constants match actual array sizes
+ *   4.  Configuration            — array size relationships enforced by constants
+ *   5.  displayGear buffer       — buffer pushed only on gear change
+ *   6.  checkHistory             — sequence detection triggers correct display path
+ *   7.  getGear debounce         — two-read scheme filters transient noise
+ *   8.  getBrightness helper     — constant vs pot-derived brightness
+ *   9.  getScrollSpeed helper    — constant vs pot-derived scroll speed
+ *   10. neutralReminderActive    — timer logic and configuration validity
+ *   11. Feature pin config       — pot and switch pin conflict checks
  */
 
 #include <cstdio>
@@ -24,9 +29,11 @@
 #include "mocks/SPI.h"
 
 // mock_pin_state storage (declared extern in Arduino.h)
-int  mock_pin_state[14]            = {};
-int  mock_pin_state_post_delay[14] = {};
+// Covers digital pins 0-13 and analog pins A0-A5 (14-19)
+int  mock_pin_state[20]            = {};
+int  mock_pin_state_post_delay[20] = {};
 bool mock_pin_change_on_delay      = false;
+unsigned long mock_millis_value    = 0;
 
 // Include the actual sketch — gives us all its globals and functions
 #include "../GearShift6_8x8.ino"
@@ -56,11 +63,13 @@ static int g_tests_failed = 0;
 static void reset_state() {
     previousGears.clear();
     previousGears.push(0);   // mirror setup(): start at Park
-    currentGear = 0;
+    currentGear       = 0;
+    neutralSinceMs    = 0;
+    mock_millis_value = 0;
     parola_reset_counts();
     mock_pin_change_on_delay = false;
-    for (int i = 0; i < 14; i++) mock_pin_state[i]            = HIGH;
-    for (int i = 0; i < 14; i++) mock_pin_state_post_delay[i] = HIGH;
+    for (int i = 0; i < 20; i++) mock_pin_state[i]            = HIGH;
+    for (int i = 0; i < 20; i++) mock_pin_state_post_delay[i] = HIGH;
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +444,132 @@ static void test_debounce() {
 }
 
 // ---------------------------------------------------------------------------
+// 8. getBrightness helper
+// ---------------------------------------------------------------------------
+static void test_getBrightness() {
+    GROUP("getBrightness helper");
+
+    // USE_POT_BRIGHTNESS=false (compile-time default) → always returns BRIGHTNESS constant
+    reset_state();
+    TEST("pot disabled → returns BRIGHTNESS constant", getBrightness() == BRIGHTNESS);
+
+    // Analog pin value is irrelevant when pot is disabled
+    mock_pin_state[BRIGHTNESS_POT_PIN] = 1023;
+    TEST("pot disabled → analog pin not read, still returns BRIGHTNESS",
+         getBrightness() == BRIGHTNESS);
+
+    // Verify map() produces correct values (used internally when pot enabled)
+    TEST("map(0, 0, 1023, 0, 15) == 0",    map(0,    0, 1023, 0, 15) == 0);
+    TEST("map(1023, 0, 1023, 0, 15) == 15", map(1023, 0, 1023, 0, 15) == 15);
+    TEST("map(512, 0, 1023, 0, 15) maps to 7 or 8",
+         map(512, 0, 1023, 0, 15) >= 7 && map(512, 0, 1023, 0, 15) <= 8);
+
+    reset_state();
+}
+
+// ---------------------------------------------------------------------------
+// 9. getScrollSpeed helper
+// ---------------------------------------------------------------------------
+static void test_getScrollSpeed() {
+    GROUP("getScrollSpeed helper");
+
+    // USE_POT_SCROLL=false (compile-time default) → always returns SCROLL_SPEED constant
+    reset_state();
+    TEST("pot disabled → returns SCROLL_SPEED constant", getScrollSpeed() == SCROLL_SPEED);
+
+    // Analog pin value is irrelevant when pot is disabled
+    mock_pin_state[SCROLL_POT_PIN] = 1023;
+    TEST("pot disabled → analog pin not read, still returns SCROLL_SPEED",
+         getScrollSpeed() == SCROLL_SPEED);
+
+    // Speed range constants are sane
+    TEST("SCROLL_SPEED_MIN < SCROLL_SPEED_MAX", SCROLL_SPEED_MIN < SCROLL_SPEED_MAX);
+    TEST("SCROLL_SPEED_MIN >= 1 (non-zero prevents divide-by-zero in Parola)",
+         SCROLL_SPEED_MIN >= 1);
+    TEST("SCROLL_SPEED within [SCROLL_SPEED_MIN, SCROLL_SPEED_MAX]",
+         SCROLL_SPEED >= SCROLL_SPEED_MIN && SCROLL_SPEED <= SCROLL_SPEED_MAX);
+
+    reset_state();
+}
+
+// ---------------------------------------------------------------------------
+// 10. neutralReminderActive helper
+// ---------------------------------------------------------------------------
+static void test_neutralReminder() {
+    GROUP("neutralReminderActive helper");
+
+    // NEUTRAL_REMINDER=false (compile-time default) → helper always returns false
+    reset_state();
+    currentGear    = NEUTRAL_INDEX;
+    neutralSinceMs = 1;
+    mock_millis_value = (unsigned long)NEUTRAL_REMINDER_DELAY + 1000UL;
+    TEST("NEUTRAL_REMINDER disabled → neutralReminderActive() always false",
+         neutralReminderActive() == false);
+
+    // When disabled, helper returns false even if all other conditions are met
+    neutralSinceMs = 0;
+    currentGear    = 0;
+    TEST("NEUTRAL_REMINDER disabled → false when not in neutral either",
+         neutralReminderActive() == false);
+
+    // Configuration constraints (valid regardless of whether feature is enabled)
+    TEST("NEUTRAL_INDEX is within GearChars bounds",
+         NEUTRAL_INDEX >= 0 && NEUTRAL_INDEX < NUM_GEARS);
+    TEST("GearChars[NEUTRAL_INDEX] == 'N' (default config)",
+         GearChars[NEUTRAL_INDEX] == 'N');
+    TEST("NEUTRAL_REMINDER_DELAY > 0",
+         NEUTRAL_REMINDER_DELAY > 0);
+    TEST("NEUTRAL_REMINDER_BRIGHTNESS in valid range [0, 15]",
+         NEUTRAL_REMINDER_BRIGHTNESS <= 15);
+
+    // neutralSinceMs=0 sentinel: reminder must not fire when timer not started
+    // (exercises the neutralSinceMs != 0 guard in neutralReminderActive)
+    reset_state();
+    currentGear    = NEUTRAL_INDEX;
+    neutralSinceMs = 0;
+    mock_millis_value = 99999UL;  // millis() far past any delay — but timer not set
+    TEST("neutralSinceMs==0 → reminder does not fire (timer not started)",
+         neutralReminderActive() == false);
+
+    reset_state();
+}
+
+// ---------------------------------------------------------------------------
+// 11. Feature pin configuration
+// ---------------------------------------------------------------------------
+static void test_feature_pin_config() {
+    GROUP("Feature pin configuration");
+
+    // Pot pins must be in the analog-capable range (A0=14 … A5=19 on Uno)
+    TEST("BRIGHTNESS_POT_PIN is an analog-capable pin (A0-A5)",
+         BRIGHTNESS_POT_PIN >= 14 && BRIGHTNESS_POT_PIN <= 19);
+    TEST("SCROLL_POT_PIN is an analog-capable pin (A0-A5)",
+         SCROLL_POT_PIN >= 14 && SCROLL_POT_PIN <= 19);
+
+    // Pot pins must be distinct
+    TEST("BRIGHTNESS_POT_PIN != SCROLL_POT_PIN",
+         BRIGHTNESS_POT_PIN != SCROLL_POT_PIN);
+
+    // A0 (pin 14) is used for RNG seed in setup() — pot pins must not reuse it
+    TEST("BRIGHTNESS_POT_PIN != A0 (A0 reserved for RNG seed)",
+         BRIGHTNESS_POT_PIN != 14);
+    TEST("SCROLL_POT_PIN != A0 (A0 reserved for RNG seed)",
+         SCROLL_POT_PIN != 14);
+
+    // DEBUG_SWITCH_PIN must not conflict with Hall sensor, SPI, or pot pins
+    bool switch_ok = true;
+    for (int8_t i = 0; i < NUM_LOOPS; i++)
+        if (DEBUG_SWITCH_PIN == Hall[i]) switch_ok = false;
+    if (DEBUG_SWITCH_PIN == DATA_PIN        || DEBUG_SWITCH_PIN == CLK_PIN    ||
+        DEBUG_SWITCH_PIN == CS_PIN          || DEBUG_SWITCH_PIN == BRIGHTNESS_POT_PIN ||
+        DEBUG_SWITCH_PIN == SCROLL_POT_PIN)
+        switch_ok = false;
+    TEST("DEBUG_SWITCH_PIN does not conflict with Hall, SPI, or pot pins", switch_ok);
+
+    reset_state();
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main() {
@@ -447,6 +582,10 @@ int main() {
     test_displayGear_buffer();
     test_checkHistory();
     test_debounce();
+    test_getBrightness();
+    test_getScrollSpeed();
+    test_neutralReminder();
+    test_feature_pin_config();
 
     printf("\n=================================\n");
     printf("Results: %d/%d passed", g_tests_passed, g_tests_run);

@@ -13,16 +13,18 @@ enum textEffect_t {
 };
 
 // Call counters — reset between tests via parola_reset_counts()
-inline int parola_setSpriteData_count = 0;  // incremented when animation plays
-inline int parola_displayScroll_count = 0;  // incremented when scroll text plays
-inline int parola_displayText_count   = 0;
-inline int parola_displayAnimate_count = 0;
+inline int     parola_setSpriteData_count  = 0;  // incremented when animation plays
+inline int     parola_displayScroll_count  = 0;  // incremented when scroll text plays
+inline int     parola_displayText_count    = 0;
+inline int     parola_displayAnimate_count = 0;
+inline uint8_t parola_setIntensity_last    = 0;  // last value passed to setIntensity()
 
 inline void parola_reset_counts() {
     parola_setSpriteData_count  = 0;
     parola_displayScroll_count  = 0;
     parola_displayText_count    = 0;
     parola_displayAnimate_count = 0;
+    parola_setIntensity_last    = 0;
 }
 
 class MD_Parola {
@@ -30,7 +32,7 @@ public:
     MD_Parola(MD_MAX72XX::hardwareType_t, uint8_t, uint8_t) {}
 
     void begin()                     {}
-    void setIntensity(uint8_t)       {}
+    void setIntensity(uint8_t i)     { parola_setIntensity_last = i; }
     void displayClear()              {}
     void displayReset()              {}
 
