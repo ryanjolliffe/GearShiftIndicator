@@ -1,0 +1,414 @@
+/**
+ * @file
+ * @author Ryan Jolliffe (ryanjolliffe@hotmail.co.uk)
+ * @brief Use hall effect sensors to determine and display vehicle gear selection
+ * on an 8x8 LED display.
+ * @version v0.6
+ * @copyright Copyright (c) 2021
+ */
+
+/** @mainpage Introduction and Installation
+ *
+ * @section intro_sec Introduction
+ *
+ * This is the documentation for GearShift6_8x8.ino - named as such due
+ * to it being code that handles Gear Shifting using 6 (by default) hall
+ * effect sensors which determines the current gear position then displays
+ * the result on an 8x8 LED display matrix with relevant (and not so
+ * relevant) animations. 
+ *
+ * @subsection note_sub Please Note
+ * This code was originally developed for my Dad's scratch-built Locost 7.
+ * As such, whilst this code was designed with flexibility and customisation
+ * in mind, it of course comes with a few caveats. For example:
+ * - Whilst the gear/sensor numbers and values can be adjusted,
+ * it is still assumed that there are only 2 directions for gear changes - Up and Down.
+ *     + Other configurations will still work, but the animations rely on
+ *     this structure and as such will still slide up or down only.
+ *     This is on my TODO list for future changes!
+ *
+ * @section install_sec Software Installation
+ *
+ * @subsection step1 Step 1: Install Arduino IDE and relevant libraries.
+ * 3 additional libraries are used in this code and need to be installed
+ * via Tools > Manage Libraries in the Arduino IDE. Searching for their
+ * names should allow you to find them with ease.
+ * Library          | Used For:
+ * -------------    | -------------
+ * MD_MAX72xx.h     | Interacting with display(s) 
+ * MD_Parola.h      | Text and Sprite Animation 
+ * CircularBuffer.h | Tracking gear change history 
+ *
+ * @subsection step2 Step 2: Adjust variables.
+ * Most variables are able to be changed to suit your particular setup.
+ * Take care to read the documentation for each, as some must meet
+ * particular conditions to work as expected (in particular; pin numbers).
+ *
+ * @subsection step3 Step 3: Verify changes.
+ * Use the Verify button (looks like a check/tick underneath the "File" menu heading)
+ * to verify that any changes have been implemented correctly. The IDE will
+ * warn of any errors it encounters when compiling the code.
+ * For additional information, ensure the "Show verbose output" checkboxes
+ * are marked in the IDE Preferences (File > Preferences, Settings Tab).
+ * - This step is obviously not necessary if no changes are made to the code.
+ *
+ * @subsection step4 Step 4: Connect Arduino and upload.
+ * If connecting via USB, the appropriate port and board should be automatically
+ * selected by the IDE, but can be confirmed or manually adjusted under
+ * the Tools menu heading (see "Board" and "Port" subsections).
+ *
+ * @subsection step5 Step 5: Wire up Arduino and test!
+ * Currently, no instructions are available from us but this will be changed
+ * in the future. Ensure the pins used match what is written in the code's
+ * variables.
+ *
+ * @section anim_sec Animations
+ *
+ * As the [MD_Parola library](https://github.com/MajicDesigns/MD_Parola) is used,
+ * animations using the [relevant sprites](https://arduinoplusplus.wordpress.com/2018/04/19/parola-a-to-z-sprite-text-effects/)
+ * can be used if desired and a few select ones are already implemented.
+ */
+
+
+/* Necessary libraries, ensure they are
+  installed in Arduino IDE before uploading */
+#include <SPI.h>                                                                // should be included in default Arduino IDE
+#include <MD_Parola.h>
+#include <MD_MAX72xx.h>
+#include <CircularBuffer.h>
+
+/** Change if using PAROLA_HW or other LED hardware,
+* incorrect setting can cause orientation issues */
+#define HARDWARE_TYPE MD_MAX72XX::GENERIC_HW
+
+/* Settings: */
+
+// GEAR SETTINGS
+/** How many gears are used - must match the number of gear characters in GearChars array */
+const byte    NUM_GEARS                        = 7;
+/** Used for loop counting etc when starting with 0 */
+const int8_t  NUM_LOOPS                        = NUM_GEARS - 1;
+/** Set number of stored previous gear states - 4 used here used to detect 'sequence' such as 1-2-1-2, which can then be acted upon */
+const uint8_t BUFFER_SIZE                      = 4;
+/** Layout here from left to right should match gear order on vehicle from top to bottom/start to finish */
+const char    GearChars[NUM_GEARS]             = {'P', 'R', 'N', 'D', '3', '2', '1'};
+// DISPLAY AND SENSOR SETTINGS
+/** Hall Effect sensor pins in the same order as GearChars array - 'Park' position is assumed to not have a sensor and so the first pin represents "R" */
+const uint8_t Hall[NUM_LOOPS]                  = {      3,   4,   5,   6,   7,   8 };
+/** Array for storing relevant LED pins; (DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES) */
+const uint8_t LED[]                            = { 11,  13,  10,  1};
+
+// CUSTOMISATION
+/** Text scrolled upon boot */
+const char    StartupText[]                    = {"Scratch built by Kevin Jolliffe"};
+/** Sequence of gears necessary to display and loop animations (i.e. D-N-D-N), must be same length as BUFFER_SIZE */
+const char    ANIM_SEQUENCE[BUFFER_SIZE]       = {'D', 'N', 'D', 'N'};
+/** Sequence of gears necessary to display and loop the startup text (i.e. R-N-R-N), must be same length as BUFFER_SIZE */
+const char    SCROLLTEXT_SEQUENCE[BUFFER_SIZE] = {'R', 'N', 'R', 'N'};
+/** Speed that StartupText and animations are scrolled, number is milliseconds between frame updates */
+const uint8_t SCROLL_SPEED                     = 75;
+/** Set brightness of LEDs (using range 0-15), can replace with potentiometer-derived value */
+const byte    BRIGHTNESS                       = 4;
+
+// DEBUGGING
+/** Set to 1 to enable debugging via Serial (baud) */
+const byte    DEBUG_MODE                       = 0;
+/** Number of readings in debug mode, recommended to match buffer size or larger */
+const uint8_t DEBUG_READS                      = BUFFER_SIZE;
+/** Delay between debug readings in milliseconds (3 seconds by default) */
+const int     DEBUG_DELAY                      = 3000;
+/** Set baud rate here for Serial communication */
+const int     BAUD_SPEED                       = 9600;
+
+// HARDWARE SPI
+/** Creates display instance using given settings (HARDWARE_TYPE, CS_PIN, MAX_DEVICES) */
+MD_Parola Parola = MD_Parola(HARDWARE_TYPE, LED[2], LED[3]);
+// SOFTWARE SPI
+//MD_Parola P = MD_Parola(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN, MAX_DEVICES);
+    
+
+/* Sprite definitions - stored in RAM/PROGMEM to save memory */
+
+const uint8_t F_PMAN = 6;
+const uint8_t W_PMAN = 8;
+const uint8_t PROGMEM pacman[F_PMAN * W_PMAN] = {
+  0x00, 0x81, 0xc3, 0xe7, 0xff, 0x7e, 0x7e, 0x3c,
+  0x00, 0x42, 0xe7, 0xe7, 0xff, 0xff, 0x7e, 0x3c,
+  0x24, 0x66, 0xe7, 0xff, 0xff, 0xff, 0x7e, 0x3c,
+  0x3c, 0x7e, 0xff, 0xff, 0xff, 0xff, 0x7e, 0x3c,
+  0x24, 0x66, 0xe7, 0xff, 0xff, 0xff, 0x7e, 0x3c,
+  0x00, 0x42, 0xe7, 0xe7, 0xff, 0xff, 0x7e, 0x3c,
+};
+/**< Sprite definition for gobbling pacman animation */
+
+const uint8_t F_PMANGHOST = 6;
+const uint8_t W_PMANGHOST = 18;
+static const uint8_t PROGMEM pacmanghost[F_PMANGHOST * W_PMANGHOST] = {
+  0x00, 0x81, 0xc3, 0xe7, 0xff, 0x7e, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x7b, 0xf3, 0x7f, 0xfb, 0x73, 0xfe,
+  0x00, 0x42, 0xe7, 0xe7, 0xff, 0xff, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x7b, 0xf3, 0x7f, 0xfb, 0x73, 0xfe,
+  0x24, 0x66, 0xe7, 0xff, 0xff, 0xff, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x7b, 0xf3, 0x7f, 0xfb, 0x73, 0xfe,
+  0x3c, 0x7e, 0xff, 0xff, 0xff, 0xff, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x73, 0xfb, 0x7f, 0xf3, 0x7b, 0xfe,
+  0x24, 0x66, 0xe7, 0xff, 0xff, 0xff, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x73, 0xfb, 0x7f, 0xf3, 0x7b, 0xfe,
+  0x00, 0x42, 0xe7, 0xe7, 0xff, 0xff, 0x7e, 0x3c, 0x00, 0x00, 0x00, 0xfe, 0x73, 0xfb, 0x7f, 0xf3, 0x7b, 0xfe,
+};
+/**< Sprite definition for ghost pursued by pacman */
+
+const uint8_t F_SAILBOAT = 1;
+const uint8_t W_SAILBOAT = 11;
+const uint8_t PROGMEM sailboat[F_SAILBOAT * W_SAILBOAT] = {
+  0x10, 0x30, 0x58, 0x94, 0x92, 0x9f, 0x92, 0x94, 0x98, 0x50, 0x30,
+};
+/**< Sprite definition for sail boat */
+
+const uint8_t F_STEAMBOAT = 2;
+const uint8_t W_STEAMBOAT = 11;
+const uint8_t PROGMEM steamboat[F_STEAMBOAT * W_STEAMBOAT] = {
+  0x10, 0x30, 0x50, 0x9c, 0x9e, 0x90, 0x91, 0x9c, 0x9d, 0x90, 0x71,
+  0x10, 0x30, 0x50, 0x9c, 0x9c, 0x91, 0x90, 0x9d, 0x9e, 0x91, 0x70,
+};
+/**< Sprite definition for steam boat */
+
+const uint8_t F_HEART = 5;
+const uint8_t W_HEART = 9;
+const uint8_t PROGMEM beatingheart[F_HEART * W_HEART] = {
+  0x0e, 0x11, 0x21, 0x42, 0x84, 0x42, 0x21, 0x11, 0x0e,
+  0x0e, 0x1f, 0x33, 0x66, 0xcc, 0x66, 0x33, 0x1f, 0x0e,
+  0x0e, 0x1f, 0x3f, 0x7e, 0xfc, 0x7e, 0x3f, 0x1f, 0x0e,
+  0x0e, 0x1f, 0x33, 0x66, 0xcc, 0x66, 0x33, 0x1f, 0x0e,
+  0x0e, 0x11, 0x21, 0x42, 0x84, 0x42, 0x21, 0x11, 0x0e,
+};
+/**< Sprite definition for beating heart */
+
+const uint8_t F_INVADER = 2;
+const uint8_t W_INVADER = 10;
+const uint8_t PROGMEM spaceinvader[F_INVADER * W_INVADER] = {
+  0x0e, 0x98, 0x7d, 0x36, 0x3c, 0x3c, 0x36, 0x7d, 0x98, 0x0e,
+  0x70, 0x18, 0x7d, 0xb6, 0x3c, 0x3c, 0xb6, 0x7d, 0x18, 0x70,
+};
+/**< Sprite definition for space invader */
+
+const uint8_t F_FIRE = 2;
+const uint8_t W_FIRE = 11;
+const uint8_t PROGMEM fire[F_FIRE * W_FIRE] = {
+  0x7e, 0xab, 0x54, 0x28, 0x52, 0x24, 0x40, 0x18, 0x04, 0x10, 0x08,
+  0x7e, 0xd5, 0x2a, 0x14, 0x24, 0x0a, 0x30, 0x04, 0x28, 0x08, 0x10,
+};
+/**< Sprite definition for fire */
+
+const uint8_t F_WALKER = 5;
+const uint8_t W_WALKER = 7;
+const uint8_t PROGMEM walker[F_WALKER * W_WALKER] = {
+  0x00, 0x48, 0x77, 0x1f, 0x1c, 0x94, 0x68,
+  0x00, 0x90, 0xee, 0x3e, 0x38, 0x28, 0xd0,
+  0x00, 0x00, 0xae, 0xfe, 0x38, 0x28, 0x40,
+  0x00, 0x00, 0x2e, 0xbe, 0xf8, 0x00, 0x00,
+  0x00, 0x10, 0x6e, 0x3e, 0xb8, 0xe8, 0x00,
+};
+/**< Sprite definition for walking stick figure */
+
+/* Struct used for storing/retrieving sprite settings. */
+struct
+{
+  const uint8_t *data;
+  uint8_t width;
+  uint8_t frames;
+}
+sprite[] =
+{
+  { fire, W_FIRE, F_FIRE },
+  { pacman, W_PMAN, F_PMAN },
+  { walker, W_WALKER, F_WALKER },
+  { beatingheart, W_HEART, F_HEART },
+  { sailboat, W_SAILBOAT, F_SAILBOAT },
+  { spaceinvader, W_INVADER, F_INVADER },
+  { steamboat, W_STEAMBOAT, F_STEAMBOAT },
+  { pacmanghost, W_PMANGHOST, F_PMANGHOST }
+};
+
+/* Variables that will change during runtime: */
+
+/** An integer representing the current gear position
+* (as given in the GearChars array). */
+int8_t currentGear;
+/** A Circular Buffer (array of length BUFFER_SIZE)
+* used to store the previous gear positions. */
+CircularBuffer<byte, BUFFER_SIZE> previousGears;                                // a buffer to store previous gear positions
+
+/**
+ * @brief Initialises sensors and LED display.
+ * 
+ * Function that runs *once* when Arduino is first
+ * booted; initialises sensors and LED display,
+ * then loads known state (Park position) and
+ * checks if DEBUG_MODE is enabled.
+ * Also adds randomness to random() calls via
+ * an analogue 'Pin 0' read.
+ *
+ */
+void setup() {
+  hallSetup();                                                                  // initialise sensors
+  displaySetup();                                                               // initialise display
+  currentGear = 0;                                                              // set current gear to 'Parked' position until first sensor read to establish known state
+  previousGears.push(currentGear);                                              // push 'Park' {"P"} position to buffer also, which is translated to *char via GearChars[0]
+  if (DEBUG_MODE == 1) {                                                        // check if DEBUG_MODE is enabled, and runs debugFunction() if TRUE
+    Serial.begin(BAUD_SPEED);
+    debugFunction();
+  }
+  randomSeed(analogRead(0));                                                    // take 'noisy' reading (i.e. hopefully random) as the seed for our random() calls; adds randomness
+}
+
+/**
+ * @brief Main loop.
+ * 
+ * The main loop that runs the core components
+ * repeatedly until power-off.
+ *
+ */
+void loop() {
+  currentGear = getGear();                                                      // read hall effect sensors and calculate current gear position
+  displayGear(currentGear);                                                     // display the current gear, with appropriate animation if different from previous gear
+  checkHistory();                                                               // checks gear history for defined sequences and calls relevant functions
+}
+
+/** @brief Initialize the hall effect sensor pins as inputs. */
+void hallSetup() {
+  for (int8_t i = 0; i < NUM_LOOPS; i++) {
+    pinMode(Hall[i], INPUT);
+  }
+}
+
+/** @brief Setup LED display */
+void displaySetup() {
+  Parola.begin();                                                               // initialise display
+  Parola.setIntensity(BRIGHTNESS);                                              // set display intensity/brightness
+  Parola.displayClear();
+  Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED);     // display message on startup
+  while (!Parola.displayAnimate())                                              // play animation once until complete
+    ;
+  Parola.displayReset();
+  Parola.displayClear();
+}
+
+/**
+ * @brief Loop through sensors until LOW reading detected
+ * 
+ * @return gear
+ * A numeric value representing the current gear,
+ * matching the gear's position in the GearChars array.
+ */
+int8_t getGear() {
+  int8_t gear = NUM_LOOPS;
+  while ((gear) && (digitalRead(Hall[gear - 1]))) {
+    gear--;
+  }
+  return gear;
+}
+
+/**
+ * @brief Displays current gear on LED, and checks if animations
+ * should be used depending on previous gear value.
+ *
+ * @param gearValue A numeric value representing the current gear,
+ * matching the gear's position in the GearChars array.
+ */
+void displayGear(int8_t gearValue) {
+  char curGearChar[2] = {GearChars[gearValue]};                                 // convert gearValue to c-string character for display purposes by pulling from null terminated array using pointers
+  if (gearValue == previousGears.last()) {                                      // if current gear is same as previous, simply print
+    Parola.displayText(curGearChar, PA_CENTER, 0, 0, PA_PRINT, PA_NO_EFFECT);   // set display settings
+    Parola.displayAnimate();                                                    // display appropriate character
+  }
+  else if ((previousGears.last() < gearValue)) {                                // if the previous gear is situated to the left of current gear (in char array) then scroll down
+    Parola.displayText(
+      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_DOWN, PA_NO_EFFECT     // set scrolling text settings
+    );
+    while (!Parola.displayAnimate())                                            // play once animation until complete
+      ;
+    previousGears.push(gearValue);                                              // push current gear to buffer as it is different
+  } else {                                                                      // if the previous gear is not situated left (i.e. is to the right of current gear in char array) then scroll up
+    Parola.displayText(
+      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_UP, PA_NO_EFFECT
+    );
+    while (!Parola.displayAnimate())
+      ;
+    previousGears.push(gearValue);                                              // push current gear to buffer as it is different
+  }
+}
+
+/* WIP */
+
+/** @brief Checks for given sequence of gear changes using
+* buffer functionality and calls other functions as required. */
+void checkHistory() {
+  if (previousGears.isFull()) {
+    char gearHistory[BUFFER_SIZE];                                              // create new char array from history for comparison
+    for (int8_t i = 0; i < BUFFER_SIZE; i++) {                                  // loop to populate array with char equivalents
+      gearHistory[i] = GearChars[previousGears[i]];
+    }
+    if (checkArrays(gearHistory, ANIM_SEQUENCE, BUFFER_SIZE) == true) {         // compares the two arrays; if buffer history matches ANIM_SEQUENCE, then display animation
+      displayAnimation(random(ARRAY_SIZE(sprite) - 1));                         // selects and displays random animation from struct array
+    }
+    else if (checkArrays(gearHistory, SCROLLTEXT_SEQUENCE, BUFFER_SIZE) == true) {
+      Parola.displayClear();
+      Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED); // scroll StartupText
+      while (!Parola.displayAnimate())                                          // play animation once until complete
+        ;
+      Parola.displayReset();
+      Parola.displayClear();
+    }
+  }
+}
+
+/** @brief Compares 2 char arrays and returns boolean result. */
+boolean checkArrays(char arrayA[], char arrayB[], long numItems) {
+  boolean matchCheck = true;
+  long i = 0;
+  while (i < numItems && matchCheck) {
+    matchCheck = (arrayA[i] == arrayB[i]);
+    i++;
+  }
+  return matchCheck;
+}
+
+/** @brief Displays an animation based on the previously
+* selected sprite definition from checkHistory function. */
+void displayAnimation(byte selection) {
+  char curGearChar[2] = {GearChars[previousGears.last()]};
+  Parola.displayReset();
+  Parola.displayClear();
+  Parola.setSpriteData(
+    sprite[selection].data, sprite[selection].width, sprite[selection].frames,  // entry sprite
+    sprite[selection].data, sprite[selection].width, sprite[selection].frames   // exit sprite
+  );
+  Parola.displayText(
+    curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SPRITE, PA_SPRITE               // set animation settings
+  );
+  while (!Parola.displayAnimate())                                              // play animation once until complete
+    ;
+}
+
+/** @brief Functions useful for debugging.
+*
+* Writes DEBUG_READS lots of readings (default:4) from
+* all hall sensors to Serial - with a delay to allow changing
+* gear - then fills & prints buffer; for debugging purposes. */
+void debugFunction() {
+  String buf = "";
+  String bufChars = "";
+  for (int8_t i = 0; i < DEBUG_READS; i++) {
+    delay(DEBUG_DELAY);                                                         // wait to allow gear changing/hall sensor/magnet position changes
+    for (int8_t x = 0; x < NUM_LOOPS; x++) {                                    // loop through all sensors and print values to Serial
+      Serial.println(
+        String(x + 1) +
+        "| Digital: " +
+        String(digitalRead(Hall[x])) +
+        " Analogue: " +
+        String(analogRead(Hall[x]))
+      );
+    }
+    previousGears.push(random(NUM_LOOPS));                                      // push pseudorandom GearChar values to buffer
+    buf = buf + previousGears.last();                                           // add current gear in numeric form to a string for printing to Serial
+    bufChars = bufChars + GearChars[previousGears.last()];                      // add current gear in char form to a string for printing to Serial
+  }
+  Serial.println("Buffer contents: " + buf + bufChars);                         // ...print buffer contents, to Serial...
+  while (true);                                                                 // puts arduino into an infinite loop, reboot to start again
+}
