@@ -90,12 +90,12 @@ const byte    NUM_GEARS                        = 7;
 /** Used for loop counting etc when starting with 0 */
 const int8_t  NUM_LOOPS                        = NUM_GEARS - 1;
 /** Set number of stored previous gear states - 4 used here used to detect 'sequence' such as 1-2-1-2, which can then be acted upon */
-const uint8_t BUFFER_SIZE                      = 4;
+const uint8_t BufferSize                       = 4;
 /** Layout here from left to right should match gear order on vehicle from top to bottom/start to finish */
 const char    GearChars[NUM_GEARS]             = {'P', 'R', 'N', 'D', '3', '2', '1'};
 // DISPLAY AND SENSOR SETTINGS
 /** Hall Effect sensor pins in the same order as GearChars array - 'Park' position is assumed to not have a sensor and so the first pin represents "R" */
-const uint8_t Hall[NUM_LOOPS]                  = {      3,   4,   5,   6,   7,   8 };
+const uint8_t HALL_PINS[NUM_LOOPS]             = {      3,   4,   5,   6,   7,   8 };
 /** SPI data pin (MOSI) */
 const uint8_t DATA_PIN                         = 11;
 /** SPI clock pin (SCK) */
@@ -108,12 +108,12 @@ const uint8_t MAX_DEVICES                      = 1;
 // CUSTOMISATION
 /** Text scrolled upon boot */
 const char    StartupText[]                    = {"Scratch built by Kevin Jolliffe"};
-/** Sequence of gears necessary to display and loop animations (i.e. D-N-D-N), must be same length as BUFFER_SIZE */
-const char    ANIM_SEQUENCE[BUFFER_SIZE]       = {'D', 'N', 'D', 'N'};
-/** Sequence of gears necessary to display and loop the startup text (i.e. R-N-R-N), must be same length as BUFFER_SIZE */
-const char    SCROLLTEXT_SEQUENCE[BUFFER_SIZE] = {'R', 'N', 'R', 'N'};
+/** Sequence of gears necessary to display and loop animations (i.e. D-N-D-N), must be same length as BufferSize */
+const char    AnimSequence[BufferSize]         = {'D', 'N', 'D', 'N'};
+/** Sequence of gears necessary to display and loop the startup text (i.e. R-N-R-N), must be same length as BufferSize */
+const char    ScrolltextSequence[BufferSize]   = {'R', 'N', 'R', 'N'};
 /** Speed that StartupText and animations are scrolled, number is milliseconds between frame updates */
-const uint16_t SCROLL_SPEED                    = 75;
+const uint16_t ScrollSpeed                     = 75;
 /** Set brightness of LEDs (using range 0-15), can replace with potentiometer-derived value */
 const byte    BRIGHTNESS                       = 4;
 /** Debounce delay (ms) between the two sensor reads in getGear() - filters
@@ -124,17 +124,17 @@ const uint8_t DEBOUNCE_DELAY                   = 5;
 // DEBUGGING
 /** Set to 1 to enable debugging via Serial, 0 to disable.
 *
-*  Intended workflow: reflash with DEBUG_MODE=1 before a debugging session,
-*  then reflash with DEBUG_MODE=0 when finished. When enabled, the sketch
+*  Intended workflow: reflash with DebugMode=1 before a debugging session,
+*  then reflash with DebugMode=0 when finished. When enabled, the sketch
 *  runs debugFunction() once in setup() then halts in an infinite loop —
 *  it will not enter the normal gear-reading loop. Reboot the Arduino to
 *  restart (e.g. power-cycle the car). This is by design so that debug
 *  output is captured cleanly without interleaving live readings. */
-const byte    DEBUG_MODE                       = 0;
+const byte    DebugMode                        = 0;
 /** Number of readings in debug mode, recommended to match buffer size or larger */
-const uint8_t DEBUG_READS                      = BUFFER_SIZE;
+const uint8_t DebugReads                       = BufferSize;
 /** Delay between debug readings in milliseconds (3 seconds by default) */
-const int     DEBUG_DELAY                      = 3000;
+const int     DebugDelay                       = 3000;
 /** Set baud rate here for Serial communication */
 const int     BAUD_SPEED                       = 9600;
 
@@ -149,7 +149,7 @@ void     displaySetup();
 int8_t   getGear();
 void     displayGear(int8_t gearValue);
 void     checkHistory();
-boolean  checkArrays(char arrayA[], const char arrayB[], long numItems);
+boolean  checkArrays(char arrayA[], const char arrayB[], size_t numItems);
 void     displayAnimation(byte selection);
 void     debugFunction();
 // SOFTWARE SPI
@@ -259,9 +259,9 @@ sprite[] =
 /** An integer representing the current gear position
 * (as given in the GearChars array). */
 int8_t currentGear;
-/** A Circular Buffer (array of length BUFFER_SIZE)
+/** A Circular Buffer (array of length BufferSize)
 * used to store the previous gear positions. */
-CircularBuffer<byte, BUFFER_SIZE> previousGears;                                // a buffer to store previous gear positions
+CircularBuffer<int8_t, BufferSize> previousGears;                              // a buffer to store previous gear positions
 
 /**
  * @brief Initialises sensors and LED display.
@@ -269,7 +269,7 @@ CircularBuffer<byte, BUFFER_SIZE> previousGears;                                
  * Function that runs *once* when Arduino is first
  * booted; initialises sensors and LED display,
  * then loads known state (Park position) and
- * checks if DEBUG_MODE is enabled.
+ * checks if DebugMode is enabled.
  * Also adds randomness to random() calls via
  * an analogue 'Pin 0' read.
  *
@@ -279,7 +279,7 @@ void setup() {
   displaySetup();                                                               // initialise display
   currentGear = 0;                                                              // set current gear to 'Parked' position until first sensor read to establish known state
   previousGears.push(currentGear);                                              // push 'Park' {"P"} position to buffer also, which is translated to *char via GearChars[0]
-  if (DEBUG_MODE == 1) {                                                        // check if DEBUG_MODE is enabled, and runs debugFunction() if TRUE
+  if (DebugMode == 1) {                                                        // check if DebugMode is enabled, and runs debugFunction() if TRUE
     Serial.begin(BAUD_SPEED);
     debugFunction();
   }
@@ -308,7 +308,7 @@ void loop() {
 * inputs when no sensor is triggered. */
 void hallSetup() {
   for (int8_t i = 0; i < NUM_LOOPS; i++) {
-    pinMode(Hall[i], INPUT);
+    pinMode(HALL_PINS[i], INPUT);
   }
 }
 
@@ -317,7 +317,7 @@ void displaySetup() {
   Parola.begin();                                                               // initialise display
   Parola.setIntensity(BRIGHTNESS);                                              // set display intensity/brightness
   Parola.displayClear();
-  Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED);     // display message on startup
+  Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, ScrollSpeed);     // display message on startup
   while (!Parola.displayAnimate())                                              // play animation once until complete
     ;
   Parola.displayReset();
@@ -333,12 +333,12 @@ void displaySetup() {
  */
 int8_t getGear() {
   int8_t gear = NUM_LOOPS;
-  while ((gear) && (digitalRead(Hall[gear - 1]))) {
+  while ((gear) && (digitalRead(HALL_PINS[gear - 1]))) {
     gear--;
   }
   delay(DEBOUNCE_DELAY);                                                        // short pause then re-read to confirm; filters noise and transition glitches
   int8_t gearConfirm = NUM_LOOPS;
-  while ((gearConfirm) && (digitalRead(Hall[gearConfirm - 1]))) {
+  while ((gearConfirm) && (digitalRead(HALL_PINS[gearConfirm - 1]))) {
     gearConfirm--;
   }
   return (gear == gearConfirm) ? gear : previousGears.last();                  // only accept reading if both agree; otherwise hold last known gear
@@ -352,21 +352,22 @@ int8_t getGear() {
  * matching the gear's position in the GearChars array.
  */
 void displayGear(int8_t gearValue) {
-  char curGearChar[2] = {GearChars[gearValue]};                                 // convert gearValue to c-string character for display purposes by pulling from null terminated array using pointers
+  if (gearValue < 0 || gearValue >= NUM_GEARS) return;                          // guard against invalid indices; getGear() clamps today, protects future callers
+  char curGearChar[2] = {GearChars[gearValue], '\0'};                           // explicit null terminator; single-char c-string for display
   if (gearValue == previousGears.last()) {                                      // if current gear is same as previous, simply print
     Parola.displayText(curGearChar, PA_CENTER, 0, 0, PA_PRINT, PA_NO_EFFECT);   // set display settings
     Parola.displayAnimate();                                                    // display appropriate character
   }
   else if ((previousGears.last() < gearValue)) {                                // if the previous gear is situated to the left of current gear (in char array) then scroll down
     Parola.displayText(
-      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_DOWN, PA_NO_EFFECT     // set scrolling text settings
+      curGearChar, PA_CENTER, ScrollSpeed, 1, PA_SCROLL_DOWN, PA_NO_EFFECT     // set scrolling text settings
     );
     while (!Parola.displayAnimate())                                            // play once animation until complete
       ;
     previousGears.push(gearValue);                                              // push current gear to buffer as it is different
   } else {                                                                      // if the previous gear is not situated left (i.e. is to the right of current gear in char array) then scroll up
     Parola.displayText(
-      curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SCROLL_UP, PA_NO_EFFECT
+      curGearChar, PA_CENTER, ScrollSpeed, 1, PA_SCROLL_UP, PA_NO_EFFECT
     );
     while (!Parola.displayAnimate())
       ;
@@ -384,16 +385,16 @@ void displayGear(int8_t gearValue) {
 * different gear, at which point the buffer changes and the match breaks. */
 void checkHistory() {
   if (previousGears.isFull()) {
-    char gearHistory[BUFFER_SIZE];                                              // create new char array from history for comparison
-    for (int8_t i = 0; i < BUFFER_SIZE; i++) {                                  // loop to populate array with char equivalents
+    char gearHistory[BufferSize];                                              // create new char array from history for comparison
+    for (int8_t i = 0; i < BufferSize; i++) {                                  // loop to populate array with char equivalents
       gearHistory[i] = GearChars[previousGears[i]];
     }
-    if (checkArrays(gearHistory, ANIM_SEQUENCE, BUFFER_SIZE) == true) {         // compares the two arrays; if buffer history matches ANIM_SEQUENCE, then display animation
+    if (checkArrays(gearHistory, AnimSequence, BufferSize) == true) {         // compares the two arrays; if buffer history matches AnimSequence, then display animation
       displayAnimation(random(ARRAY_SIZE(sprite)));                              // selects and displays random animation from struct array
     }
-    else if (checkArrays(gearHistory, SCROLLTEXT_SEQUENCE, BUFFER_SIZE) == true) {
+    else if (checkArrays(gearHistory, ScrolltextSequence, BufferSize) == true) {
       Parola.displayClear();
-      Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, SCROLL_SPEED); // scroll StartupText
+      Parola.displayScroll(StartupText, PA_LEFT, PA_SCROLL_LEFT, ScrollSpeed); // scroll StartupText
       while (!Parola.displayAnimate())                                          // play animation once until complete
         ;
       Parola.displayReset();
@@ -403,9 +404,9 @@ void checkHistory() {
 }
 
 /** @brief Compares 2 char arrays and returns boolean result. */
-boolean checkArrays(char arrayA[], const char arrayB[], long numItems) {
+boolean checkArrays(char arrayA[], const char arrayB[], size_t numItems) {
   boolean matchCheck = true;
-  long i = 0;
+  size_t i = 0;
   while (i < numItems && matchCheck) {
     matchCheck = (arrayA[i] == arrayB[i]);
     i++;
@@ -416,7 +417,7 @@ boolean checkArrays(char arrayA[], const char arrayB[], long numItems) {
 /** @brief Displays an animation based on the previously
 * selected sprite definition from checkHistory function. */
 void displayAnimation(byte selection) {
-  char curGearChar[2] = {GearChars[previousGears.last()]};
+  char curGearChar[2] = {GearChars[previousGears.last()], '\0'};
   Parola.displayReset();
   Parola.displayClear();
   Parola.setSpriteData(
@@ -424,7 +425,7 @@ void displayAnimation(byte selection) {
     sprite[selection].data, sprite[selection].width, sprite[selection].frames   // exit sprite
   );
   Parola.displayText(
-    curGearChar, PA_CENTER, SCROLL_SPEED, 1, PA_SPRITE, PA_SPRITE               // set animation settings
+    curGearChar, PA_CENTER, ScrollSpeed, 1, PA_SPRITE, PA_SPRITE               // set animation settings
   );
   while (!Parola.displayAnimate())                                              // play animation once until complete
     ;
@@ -432,21 +433,21 @@ void displayAnimation(byte selection) {
 
 /** @brief Functions useful for debugging.
 *
-* Writes DEBUG_READS lots of readings (default:4) from
+* Writes DebugReads lots of readings (default:4) from
 * all hall sensors to Serial - with a delay to allow changing
 * gear - then fills & prints buffer; for debugging purposes. */
 void debugFunction() {
   String buf = "";
   String bufChars = "";
-  for (int8_t i = 0; i < DEBUG_READS; i++) {
-    delay(DEBUG_DELAY);                                                         // wait to allow gear changing/hall sensor/magnet position changes
+  for (int8_t i = 0; i < DebugReads; i++) {
+    delay(DebugDelay);                                                         // wait to allow gear changing/hall sensor/magnet position changes
     for (int8_t x = 0; x < NUM_LOOPS; x++) {                                    // loop through all sensors and print values to Serial
       Serial.println(
         String(x + 1) +
         "| Digital: " +
-        String(digitalRead(Hall[x])) +
+        String(digitalRead(HALL_PINS[x])) +
         " Analogue: " +
-        String(analogRead(Hall[x]))
+        String(analogRead(HALL_PINS[x]))
       );
     }
     previousGears.push(random(NUM_GEARS));                                      // push pseudorandom GearChar values to buffer
