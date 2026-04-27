@@ -24,8 +24,8 @@
 #include "mocks/SPI.h"
 
 // mock_pin_state storage (declared extern in Arduino.h)
-int  mock_pin_state[14]            = {};
-int  mock_pin_state_post_delay[14] = {};
+int  mock_pin_state[MOCK_PIN_COUNT]            = {};
+int  mock_pin_state_post_delay[MOCK_PIN_COUNT] = {};
 bool mock_pin_change_on_delay      = false;
 
 // Include the actual sketch — gives us all its globals and functions
@@ -59,8 +59,8 @@ static void reset_state() {
     currentGear = 0;
     parola_reset_counts();
     mock_pin_change_on_delay = false;
-    for (int i = 0; i < 14; i++) mock_pin_state[i]            = HIGH;
-    for (int i = 0; i < 14; i++) mock_pin_state_post_delay[i] = HIGH;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i]            = HIGH;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state_post_delay[i] = HIGH;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,47 +117,47 @@ static void test_getGear() {
     GROUP("getGear");
 
     // All sensors HIGH → Park (index 0)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
     TEST("all sensors HIGH → gear 0 (Park)", getGear() == 0);
 
-    // Only Hall[0] LOW → gear 1 (R)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
-    mock_pin_state[Hall[0]] = LOW;
-    TEST("Hall[0] LOW only → gear 1 (R)", getGear() == 1);
+    // Only HALL_PINS[0] LOW → gear 1 (R)
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
+    mock_pin_state[HALL_PINS[0]] = LOW;
+    TEST("HALL_PINS[0] LOW only → gear 1 (R)", getGear() == 1);
 
-    // Only Hall[1] LOW → gear 2 (N)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
-    mock_pin_state[Hall[1]] = LOW;
-    TEST("Hall[1] LOW only → gear 2 (N)", getGear() == 2);
+    // Only HALL_PINS[1] LOW → gear 2 (N)
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
+    mock_pin_state[HALL_PINS[1]] = LOW;
+    TEST("HALL_PINS[1] LOW only → gear 2 (N)", getGear() == 2);
 
-    // Only Hall[2] LOW → gear 3 (D)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
-    mock_pin_state[Hall[2]] = LOW;
-    TEST("Hall[2] LOW only → gear 3 (D)", getGear() == 3);
+    // Only HALL_PINS[2] LOW → gear 3 (D)
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
+    mock_pin_state[HALL_PINS[2]] = LOW;
+    TEST("HALL_PINS[2] LOW only → gear 3 (D)", getGear() == 3);
 
-    // Only Hall[5] LOW → gear 6 (1st gear, highest index)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
-    mock_pin_state[Hall[5]] = LOW;
-    TEST("Hall[5] LOW only → gear 6 (1st)", getGear() == 6);
+    // Only HALL_PINS[5] LOW → gear 6 (1st gear, highest index)
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
+    mock_pin_state[HALL_PINS[5]] = LOW;
+    TEST("HALL_PINS[5] LOW only → gear 6 (1st)", getGear() == 6);
 
     // Two sensors LOW simultaneously: highest index wins
-    // Hall[0]=R and Hall[3]=3rd both LOW → should return 4 (the higher index)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
-    mock_pin_state[Hall[0]] = LOW;
-    mock_pin_state[Hall[3]] = LOW;
-    TEST("Hall[0] + Hall[3] both LOW → gear 4 (higher index wins)", getGear() == 4);
+    // HALL_PINS[0]=R and HALL_PINS[3]=3rd both LOW → should return 4 (the higher index)
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
+    mock_pin_state[HALL_PINS[0]] = LOW;
+    mock_pin_state[HALL_PINS[3]] = LOW;
+    TEST("HALL_PINS[0] + HALL_PINS[3] both LOW → gear 4 (higher index wins)", getGear() == 4);
 
     // All sensors LOW → gear 6 (first LOW hit scanning from top)
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = LOW;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = LOW;
     TEST("all sensors LOW → gear 6 (highest wins)", getGear() == 6);
 
     // Return value always in valid GearChars index range [0, NUM_LOOPS]
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
     int8_t g = getGear();
     TEST("getGear() returns value in [0, NUM_LOOPS]", g >= 0 && g <= NUM_LOOPS);
 
     // Reset pins
-    for (int i = 0; i < 14; i++) mock_pin_state[i] = HIGH;
+    for (int i = 0; i < MOCK_PIN_COUNT; i++) mock_pin_state[i] = HIGH;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,22 +220,22 @@ static void test_config() {
          sizeof(GearChars) == (size_t)NUM_GEARS);
 
     // Hall sensor array must have exactly NUM_LOOPS entries
-    TEST("sizeof(Hall)/sizeof(Hall[0]) == NUM_LOOPS",
-         sizeof(Hall) / sizeof(Hall[0]) == (size_t)NUM_LOOPS);
+    TEST("sizeof(HALL_PINS)/sizeof(HALL_PINS[0]) == NUM_LOOPS",
+         sizeof(HALL_PINS) / sizeof(HALL_PINS[0]) == (size_t)NUM_LOOPS);
 
     // NUM_LOOPS must be NUM_GEARS - 1
     TEST("NUM_LOOPS == NUM_GEARS - 1",
          NUM_LOOPS == NUM_GEARS - 1);
 
-    // Sequence arrays must be BUFFER_SIZE long (documented requirement)
-    TEST("sizeof(ANIM_SEQUENCE) == BUFFER_SIZE",
-         sizeof(ANIM_SEQUENCE) == (size_t)BUFFER_SIZE);
+    // Sequence arrays must be BufferSize long (documented requirement)
+    TEST("sizeof(AnimSequence) == BufferSize",
+         sizeof(AnimSequence) == (size_t)BufferSize);
 
-    TEST("sizeof(SCROLLTEXT_SEQUENCE) == BUFFER_SIZE",
-         sizeof(SCROLLTEXT_SEQUENCE) == (size_t)BUFFER_SIZE);
+    TEST("sizeof(ScrolltextSequence) == BufferSize",
+         sizeof(ScrolltextSequence) == (size_t)BufferSize);
 
-    // BUFFER_SIZE must be at least 2 for sequences to be meaningful
-    TEST("BUFFER_SIZE >= 2", BUFFER_SIZE >= 2);
+    // BufferSize must be at least 2 for sequences to be meaningful
+    TEST("BufferSize >= 2", BufferSize >= 2);
 
     // NUM_GEARS must be at least 2 (Park + at least one drive gear)
     TEST("NUM_GEARS >= 2", NUM_GEARS >= 2);
@@ -247,15 +247,15 @@ static void test_config() {
     // MAX_DEVICES must be >= 1
     TEST("MAX_DEVICES >= 1", MAX_DEVICES >= 1);
 
-    // ANIM_SEQUENCE and SCROLLTEXT_SEQUENCE must differ (else scrolltext unreachable)
+    // AnimSequence and ScrolltextSequence must differ (else scrolltext unreachable)
     bool sequences_differ = false;
-    for (uint8_t i = 0; i < BUFFER_SIZE; i++) {
-        if (ANIM_SEQUENCE[i] != SCROLLTEXT_SEQUENCE[i]) {
+    for (uint8_t i = 0; i < BufferSize; i++) {
+        if (AnimSequence[i] != ScrolltextSequence[i]) {
             sequences_differ = true;
             break;
         }
     }
-    TEST("ANIM_SEQUENCE != SCROLLTEXT_SEQUENCE (else scrolltext is unreachable)",
+    TEST("AnimSequence != ScrolltextSequence (else scrolltext is unreachable)",
          sequences_differ);
 
     // All gear chars in sequences must appear in GearChars
@@ -265,17 +265,17 @@ static void test_config() {
         return false;
     };
     bool anim_valid = true, scroll_valid = true;
-    for (uint8_t i = 0; i < BUFFER_SIZE; i++) {
-        if (!in_gears(ANIM_SEQUENCE[i]))       anim_valid   = false;
-        if (!in_gears(SCROLLTEXT_SEQUENCE[i])) scroll_valid = false;
+    for (uint8_t i = 0; i < BufferSize; i++) {
+        if (!in_gears(AnimSequence[i]))       anim_valid   = false;
+        if (!in_gears(ScrolltextSequence[i])) scroll_valid = false;
     }
-    TEST("All chars in ANIM_SEQUENCE exist in GearChars",       anim_valid);
-    TEST("All chars in SCROLLTEXT_SEQUENCE exist in GearChars", scroll_valid);
+    TEST("All chars in AnimSequence exist in GearChars",       anim_valid);
+    TEST("All chars in ScrolltextSequence exist in GearChars", scroll_valid);
 
     // Hall pins must not overlap with SPI pins (DATA_PIN, CLK_PIN, CS_PIN)
     bool no_pin_conflict = true;
     for (int8_t i = 0; i < NUM_LOOPS; i++) {
-        if (Hall[i] == DATA_PIN || Hall[i] == CLK_PIN || Hall[i] == CS_PIN)
+        if (HALL_PINS[i] == DATA_PIN || HALL_PINS[i] == CLK_PIN || HALL_PINS[i] == CS_PIN)
             no_pin_conflict = false;
     }
     TEST("Hall sensor pins do not conflict with SPI/LED pins", no_pin_conflict);
@@ -358,7 +358,7 @@ static void test_checkHistory() {
     TEST("non-matching full buffer → no animation",   parola_setSpriteData_count == 0);
     TEST("non-matching full buffer → no scroll text", parola_displayScroll_count == 0);
 
-    // Buffer matches ANIM_SEQUENCE (D-N-D-N = indices 3,2,3,2)
+    // Buffer matches AnimSequence (D-N-D-N = indices 3,2,3,2)
     reset_state();
     previousGears.clear();
     previousGears.push(3);  // D
@@ -367,12 +367,12 @@ static void test_checkHistory() {
     previousGears.push(2);  // N
     parola_reset_counts();
     checkHistory();
-    TEST("ANIM_SEQUENCE match → setSpriteData called (animation played)",
+    TEST("AnimSequence match → setSpriteData called (animation played)",
          parola_setSpriteData_count == 1);
-    TEST("ANIM_SEQUENCE match → displayScroll NOT called",
+    TEST("AnimSequence match → displayScroll NOT called",
          parola_displayScroll_count == 0);
 
-    // Buffer matches SCROLLTEXT_SEQUENCE (R-N-R-N = indices 1,2,1,2)
+    // Buffer matches ScrolltextSequence (R-N-R-N = indices 1,2,1,2)
     reset_state();
     previousGears.clear();
     previousGears.push(1);  // R
@@ -381,9 +381,9 @@ static void test_checkHistory() {
     previousGears.push(2);  // N
     parola_reset_counts();
     checkHistory();
-    TEST("SCROLLTEXT_SEQUENCE match → displayScroll called",
+    TEST("ScrolltextSequence match → displayScroll called",
          parola_displayScroll_count == 1);
-    TEST("SCROLLTEXT_SEQUENCE match → setSpriteData NOT called",
+    TEST("ScrolltextSequence match → setSpriteData NOT called",
          parola_setSpriteData_count == 0);
 
     // Sequence re-triggers on next call while gear is unchanged (intended behaviour)
@@ -403,16 +403,16 @@ static void test_debounce() {
 
     // Stable read: both reads agree → accepted
     reset_state();
-    mock_pin_state[Hall[2]] = LOW;              // D on first read
+    mock_pin_state[HALL_PINS[2]] = LOW;              // D on first read
     // post-delay state is same (stable)
-    mock_pin_state_post_delay[Hall[2]] = LOW;
+    mock_pin_state_post_delay[HALL_PINS[2]] = LOW;
     mock_pin_change_on_delay = true;
     TEST("stable read (both agree) → gear accepted", getGear() == 3);
 
     // Transient glitch: first read sees a triggered sensor, second read does not
     // → should hold last known gear (Park = 0)
     reset_state();
-    mock_pin_state[Hall[3]] = LOW;              // '3' triggered on first read
+    mock_pin_state[HALL_PINS[3]] = LOW;              // '3' triggered on first read
     // post-delay: all HIGH again (glitch cleared)
     mock_pin_change_on_delay = true;
     TEST("transient glitch (reads disagree) → last known gear returned",
@@ -421,7 +421,7 @@ static void test_debounce() {
     // Transient in reverse: first read clean, second read picks up noise
     reset_state();
     // first read: all HIGH (Park)
-    mock_pin_state_post_delay[Hall[1]] = LOW;   // N appears after delay (noise)
+    mock_pin_state_post_delay[HALL_PINS[1]] = LOW;   // N appears after delay (noise)
     mock_pin_change_on_delay = true;
     TEST("noise after delay (reads disagree) → last known gear returned",
          getGear() == previousGears.last());
@@ -430,6 +430,18 @@ static void test_debounce() {
     reset_state();
     mock_pin_change_on_delay = false;
     TEST("both reads HIGH → gear 0 (Park)", getGear() == 0);
+
+    // Gear-to-gear glitch: both reads show a triggered sensor, but for different
+    // gears. Both are "truthy" yet disagree — debounce should reject and hold
+    // the last known gear rather than accept either reading.
+    reset_state();
+    previousGears.clear();
+    previousGears.push(2);                                  // last known gear = N
+    mock_pin_state[HALL_PINS[2]]            = LOW;          // first read: D (index 3)
+    mock_pin_state_post_delay[HALL_PINS[3]] = LOW;          // after delay: '3' (index 4)
+    mock_pin_change_on_delay = true;
+    TEST("gear-to-gear glitch (different gears on each read) → last known gear returned",
+         getGear() == previousGears.last());
 
     reset_state();
 }
