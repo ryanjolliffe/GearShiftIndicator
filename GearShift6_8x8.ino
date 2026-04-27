@@ -149,7 +149,7 @@ void     displaySetup();
 int8_t   getGear();
 void     displayGear(int8_t gearValue);
 void     checkHistory();
-boolean  checkArrays(char arrayA[], const char arrayB[], size_t numItems);
+boolean  checkArrays(const char arrayA[], const char arrayB[], size_t numItems);
 void     displayAnimation(byte selection);
 void     debugFunction();
 // SOFTWARE SPI
@@ -279,11 +279,11 @@ void setup() {
   displaySetup();                                                               // initialise display
   currentGear = 0;                                                              // set current gear to 'Parked' position until first sensor read to establish known state
   previousGears.push(currentGear);                                              // push 'Park' {"P"} position to buffer also, which is translated to *char via GearChars[0]
+  randomSeed(analogRead(0));                                                    // take 'noisy' reading (i.e. hopefully random) as the seed for our random() calls; seeded before debug mode so debugFunction()'s random() calls are also non-deterministic
   if (DebugMode == 1) {                                                        // check if DebugMode is enabled, and runs debugFunction() if TRUE
     Serial.begin(BAUD_SPEED);
     debugFunction();
   }
-  randomSeed(analogRead(0));                                                    // take 'noisy' reading (i.e. hopefully random) as the seed for our random() calls; adds randomness
 }
 
 /**
@@ -352,27 +352,23 @@ int8_t getGear() {
  * matching the gear's position in the GearChars array.
  */
 void displayGear(int8_t gearValue) {
-  if (gearValue < 0 || gearValue >= NUM_GEARS) return;                          // guard against invalid indices; getGear() clamps today, protects future callers
+  static bool stablePrintDone = false;                                          // tracks whether the static (PA_PRINT) frame has been pushed for the current gear
   char curGearChar[2] = {GearChars[gearValue], '\0'};                           // explicit null terminator; single-char c-string for display
-  if (gearValue == previousGears.last()) {                                      // if current gear is same as previous, simply print
-    Parola.displayText(curGearChar, PA_CENTER, 0, 0, PA_PRINT, PA_NO_EFFECT);   // set display settings
-    Parola.displayAnimate();                                                    // display appropriate character
+  if (gearValue == previousGears.last()) {                                      // if current gear is same as previous
+    if (!stablePrintDone) {                                                     // print once to settle the library into PA_PRINT mode, then skip on subsequent loops
+      Parola.displayText(curGearChar, PA_CENTER, 0, 0, PA_PRINT, PA_NO_EFFECT);
+      Parola.displayAnimate();
+      stablePrintDone = true;
+    }
+    return;
   }
-  else if ((previousGears.last() < gearValue)) {                                // if the previous gear is situated to the left of current gear (in char array) then scroll down
-    Parola.displayText(
-      curGearChar, PA_CENTER, ScrollSpeed, 1, PA_SCROLL_DOWN, PA_NO_EFFECT     // set scrolling text settings
-    );
-    while (!Parola.displayAnimate())                                            // play once animation until complete
-      ;
-    previousGears.push(gearValue);                                              // push current gear to buffer as it is different
-  } else {                                                                      // if the previous gear is not situated left (i.e. is to the right of current gear in char array) then scroll up
-    Parola.displayText(
-      curGearChar, PA_CENTER, ScrollSpeed, 1, PA_SCROLL_UP, PA_NO_EFFECT
-    );
-    while (!Parola.displayAnimate())
-      ;
-    previousGears.push(gearValue);                                              // push current gear to buffer as it is different
-  }
+  textEffect_t scrollDir = (previousGears.last() < gearValue) ? PA_SCROLL_DOWN  // previous gear sits left of current in GearChars → scroll down; otherwise scroll up
+                                                              : PA_SCROLL_UP;
+  Parola.displayText(curGearChar, PA_CENTER, ScrollSpeed, 1, scrollDir, PA_NO_EFFECT);
+  while (!Parola.displayAnimate())                                              // play once animation until complete
+    ;
+  previousGears.push(gearValue);                                                // push current gear to buffer as it is different
+  stablePrintDone = false;                                                      // next same-gear iteration must reprint to flip library out of scroll mode
 }
 
 /** @brief Checks for given sequence of gear changes using buffer
@@ -404,7 +400,7 @@ void checkHistory() {
 }
 
 /** @brief Compares 2 char arrays and returns boolean result. */
-boolean checkArrays(char arrayA[], const char arrayB[], size_t numItems) {
+boolean checkArrays(const char arrayA[], const char arrayB[], size_t numItems) {
   boolean matchCheck = true;
   size_t i = 0;
   while (i < numItems && matchCheck) {
